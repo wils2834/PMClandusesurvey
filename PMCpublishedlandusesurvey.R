@@ -116,7 +116,7 @@ p_overall <- ggplot(pmc24_avg, aes(x = Type, y = ugC.g.day, fill = Type)) +
   theme(
     axis.text.x = element_text(angle = 45, hjust = 1, size = 13, face = "bold", color = "black"),
     axis.text.y = element_text(size = 13, face = "bold", color = "black"),
-    axis.title.y = element_text(size = 15, face = "bold"),
+    axis.title.y = element_text(size = 21, face = "bold"),
     plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
     panel.border = element_rect(color = "black", fill = NA, linewidth = 1),
     plot.margin = margin(t = 10, r = 10, b = 10, l = 50)
@@ -145,14 +145,41 @@ p_county <- ggplot(pmc24_avg, aes(x = Type, y = ugC.g.day, fill = Type)) +
   ) +
   theme_bw() +
   theme(
-    axis.text.x = element_blank(),
+    axis.text.x  = element_blank(),
     axis.ticks.x = element_blank(),
-    axis.text.y = element_text(size = 12, face = "bold", color = "black"),
-    axis.title.y = element_text(size = 14, face = "bold"),
-    strip.text = element_text(size = 13, face = "bold"),
-    plot.title = element_text(size = 15, face = "bold", hjust = 0.5)
+    axis.text.y  = element_text(size = 12, face = "bold", color = "black"),
+    axis.title.y = element_text(size = 17, face = "bold"),
+    strip.text   = element_text(size = 13, face = "bold"),
+    plot.title   = element_text(size = 15, face = "bold", hjust = 0.5),
+    legend.text  = element_text(size = 12, face = "bold", color = "black"),
+    legend.title = element_text(size = 13, face = "bold", color = "black")
   )
 print(p_county)
 ggsave("PMC_by_county_boxplot.png", p_county, width = 12, height = 7, dpi = 300)
 
 cat("\nSaved PMC_overall_boxplot.png and PMC_by_county_boxplot.png\n")
+
+# ---- Metadata export ----------------------------------------------------
+pairs(emm_PMC, adjust = "sidak")
+anova_PMC <- anova(final_model)
+
+PMC_meta <- as.data.frame(emm_PMC_table) %>%
+  dplyr::rename(Mean = if ("response" %in% names(emm_PMC_table)) "response" else "emmean") %>%
+  dplyr::left_join(
+    as.data.frame(cld_PMC) %>% dplyr::select(Type, CLD = .group),
+    by = "Type"
+  ) %>%
+  mutate(
+    Metric         = "PMC",
+    Scale          = if (use_log) "log" else "raw",
+    Shapiro_raw_p  = signif(shapiro_raw$p.value, 3),
+    Shapiro_log_p  = signif(shapiro_log$p.value, 3),
+    LMM_F          = round(anova_PMC$`F value`[1], 3),
+    LMM_p          = signif(anova_PMC$`Pr(>F)`[1], 3)
+  ) %>%
+  dplyr::select(Metric, Scale, Shapiro_raw_p, Shapiro_log_p,
+                LMM_F, LMM_p, Type, Mean,SE, CLD)
+
+write.csv(PMC_meta, "PMC_metadata.csv", row.names = FALSE)
+cat("Saved PMC_metadata.csv\n")
+
