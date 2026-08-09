@@ -183,3 +183,194 @@ PMC_meta <- as.data.frame(emm_PMC_table) %>%
 write.csv(PMC_meta, "PMC_metadata.csv", row.names = FALSE)
 cat("Saved PMC_metadata.csv\n")
 
+# PART 4 — Indexed (continuous management score) version
+scores_full <- read.csv("C:\\Users\\swils\\Downloads\\01 Projects\\2024 CRP\\Landusesurveygithub\\managementoflandusesurvey2024\\soil_health_scores_2024_all_types.csv", stringsAsFactors = FALSE)
+
+# farm_name -> lab-data Farmer name (RG/CRP rows only; Conventional/SH
+# Farmer values in the CSV are already correct)
+rg_crp_farmer_map <- c(
+  "5G_Farms"           = "5G_Farms_LLC",
+  "Cliff"              = "Cliff",
+  "Cliff_2"            = "Cliff_2",
+  "Collins"            = "Steve_Collins",
+  "Derouin"            = "Michael_Derouin",
+  "Eiken"              = "Kay_Eiken",
+  "Eiken_2"            = "Kay_Eiken_2",
+  "Haugen"             = "Bonnie_Haugen",
+  "Lee"                = "Carter_Lee",
+  "Lee_2"              = "Carter_Lee_2",
+  "McLean"             = "Maurice_McLean",
+  "Menne"              = "Kevin_Menne",
+  "Mitchell"           = "Thomas_Mitchell",
+  "Reichling_Brothers" = "Reichling_Brothers",
+  "RLH_Inc"            = "RLH_Inc",
+  "RLH_Inc_2"          = "RLH_Inc_2",
+  "Schmidt"            = "Dennis_Schmidt",
+  "UW_AG"              = "UW_AG",
+  "UW_AG_2"            = "UW_AG_2"
+)
+
+# CRP contract-age split, from the CRP Fields sheet's "treatment" column
+crp_type_map <- c(
+  "Schmidt"             = "Old_CRP",
+  "Reichling_Brothers"  = "Old_CRP",
+  "McLean"              = "Old_CRP",
+  "Eiken"               = "Old_CRP",
+  "Eiken_2"             = "Old_CRP",
+  "Derouin"             = "Old_CRP",
+  "Collins"             = "New_CRP",
+  "Menne"               = "New_CRP",
+  "5G_Farms"            = "New_CRP",
+  "Mitchell"            = "New_CRP",
+  "RLH_Inc"             = "New_CRP",
+  "RLH_Inc_2"           = "New_CRP"
+)
+
+scores_full <- scores_full %>%
+  mutate(
+    Farmer = ifelse(farm_name %in% names(rg_crp_farmer_map),
+                    rg_crp_farmer_map[farm_name],
+                    Farmer),
+    Type = ifelse(Type == "CRP" & farm_name %in% names(crp_type_map),
+                  crp_type_map[farm_name],
+                  Type)
+  )
+
+cat("Corrected Farmer/Type for RG/CRP rows:\n")
+print(scores_full %>% filter(Type %in% c("Rotational_Grazing","Old_CRP","New_CRP")) %>%
+        dplyr::select(farm_name, Farmer, Type))
+
+# ---- Join management score onto the PMC data -----------------------------
+
+pmc24_indexed <- pmc24_avg %>%
+  left_join(
+    scores_full %>% dplyr::select(Farmer, Type, soil_health_score),
+    by = c("Farmer", "Type")
+  )
+
+cat("\nRows with missing soil_health_score after join:",
+    sum(is.na(pmc24_indexed$soil_health_score)), "\n")
+
+# ---- Mixed model with continuous management score -------------------------
+
+model_PMC_idx     <- lmer(ugC.g.day       ~ soil_health_score + (1 | Field), data = pmc24_indexed)
+model_PMC_idx_log <- lmer(log(ugC.g.day)  ~ soil_health_score + (1 | Field), data = pmc24_indexed)
+
+shapiro_idx_raw <- shapiro.test(residuals(model_PMC_idx))
+shapiro_idx_log <- shapiro.test(residuals(model_PMC_idx_log))
+cat("Indexed model - Shapiro-Wilk, raw-scale residuals:  p =", signif(shapiro_idx_raw$p.value, 3), "\n")
+cat("Indexed model - Shapiro-Wilk, log-scale residuals:  p =", signif(shapiro_idx_log$p.value, 3), "\n")
+
+use_log_idx <- shapiro_idx_log$p.value > shapiro_idx_raw$p.value
+final_model_idx <- if (use_log_idx) model_PMC_idx_log else model_PMC_idx
+cat("Using", if (use_log_idx) "LOG-transformed" else "RAW-scale", "model for indexed inference.\n\n")
+
+summary(final_model_idx)
+anova_PMC_idx <- anova(final_model_idx)
+print(anova_PMC_idx)
+library(MuMIn)
+# ---- Plot: scatter + fitted line -------------------------------------------
+
+fixed_est   <- summary(final_model_idx)$coefficients["soil_health_score", "Estimate"]
+fixed_p     <- anova_PMC_idx$`Pr(>F)`[1]
+r2_marginal <- MuMIn::r.squaredGLMM(final_model_idx)[1, "R2m"]
+
+sig_lab <- paste0("R\u00b2(marginal) = ", round(r2_marginal, 2),
+                  "  (", ifelse(fixed_p < 0.001, "p < 0.001", paste0("p = ", round(fixed_p, 3))), ")")
+
+plot_data <- pmc24_indexed %>%
+  mutate(y_plot = if (use_log_idx) log(ugC.g.day) else ugC.g.day)
+
+p_indexed <- ggplot(plot_data, aes(x = soil_health_score, y = y_plot)) +
+  geom_smooth(method = "lm", color = "gray50", fill = "gray85",
+              alpha = 0.3, linewidth = 0.8, se = TRUE) +
+  geom_point(aes(color = Type, shape = County), size = 3.5, alpha = 0.9) +
+  annotate("text", x = Inf, y = Inf, label = sig_lab,
+           hjust = 1.05, vjust = 1.8, size = 4.2, color = "gray30", fontface = "italic") +
+  scale_color_manual(values = fill_colors, labels = type_labels, name = "Management") +
+  scale_shape_manual(values = c("Grant" = 16, "Fillmore" = 17), name = "County") +
+  labs(
+    title = "Potentially Mineralizable Carbon vs. Soil Health Management Score",
+    x = "Soil Health Management Score  (higher = more favorable)",
+    y = if (use_log_idx) expression(paste("log(", mu, "g C g"^-1, " day"^-1, ")")) else expression(paste(mu, "g C g"^-1, " day"^-1))
+  ) +
+  theme_bw() +
+  theme(
+    axis.text       = element_text(size = 12, face = "bold", color = "black"),
+    axis.title      = element_text(size = 13, face = "bold"),
+    plot.title      = element_text(size = 14, face = "bold", hjust = 0.5),
+    legend.title    = element_text(size = 12, face = "bold"),
+    legend.text     = element_text(size = 11),
+    legend.position = "bottom",
+    legend.key.size = unit(0.8, "lines")
+  )
+
+print(p_indexed)
+ggsave("PMC_vs_soil_health_score.png", p_indexed, width = 8.5, height = 6.5, dpi = 300)
+
+cat("\nSaved PMC_vs_soil_health_score.png\n")
+
+# ---- Metadata export (indexed version) ------------------------------------
+
+PMC_meta_indexed <- data.frame(
+  Metric         = "PMC",
+  Model          = "indexed (soil_health_score continuous)",
+  Scale          = if (use_log_idx) "log" else "raw",
+  Shapiro_raw_p  = signif(shapiro_idx_raw$p.value, 3),
+  Shapiro_log_p  = signif(shapiro_idx_log$p.value, 3),
+  Fixed_Estimate = round(fixed_est, 4),
+  LMM_F          = round(anova_PMC_idx$`F value`[1], 3),
+  LMM_p          = signif(fixed_p, 3),
+  R2_marginal    = round(r2_marginal, 3)
+)
+
+write.csv(PMC_meta_indexed, "PMC_metadata_indexed.csv", row.names = FALSE)
+cat("Saved PMC_metadata_indexed.csv\n")
+
+# =========================================================================
+# PART 5 — Field-averaged scatter (n=31, simple lm, ordinary R^2)
+# Averages pmc24_indexed (already at UID level) down to one value per
+# Field, then fits a plain lm() -- no random effects, no marginal R^2.
+# Reuses scores_full/fill_colors/type_labels already defined above.
+# =========================================================================
+
+pmc_field_avg <- pmc24_indexed %>%
+  group_by(Farmer, Type, County, soil_health_score) %>%
+  summarise(PMC = mean(ugC.g.day, na.rm = TRUE), .groups = "drop")
+
+lm_fit_avg  <- lm(PMC ~ soil_health_score, data = pmc_field_avg)
+r2_avg      <- summary(lm_fit_avg)$r.squared
+pval_avg    <- summary(lm_fit_avg)$coefficients[2, 4]
+sig_lab_avg <- paste0("R\u00b2 = ", round(r2_avg, 2),
+                      "  (", ifelse(pval_avg < 0.001, "p < 0.001", paste0("p = ", round(pval_avg, 3))), ")")
+
+cat("Field-averaged PMC model: n =", nrow(pmc_field_avg),
+    ", R2 =", round(r2_avg, 3), ", p =", signif(pval_avg, 3), "\n")
+
+p_field_avg <- ggplot(pmc_field_avg, aes(x = soil_health_score, y = PMC)) +
+  geom_smooth(method = "lm", color = "gray50", fill = "gray85",
+              alpha = 0.3, linewidth = 0.8, se = TRUE) +
+  geom_point(aes(color = Type, shape = County), size = 4, alpha = 0.9) +
+  annotate("text", x = Inf, y = Inf, label = sig_lab_avg,
+           hjust = 1.05, vjust = 1.8, size = 4.2, color = "gray30", fontface = "italic") +
+  scale_color_manual(values = fill_colors, labels = type_labels, name = "Management") +
+  scale_shape_manual(values = c("Grant" = 16, "Fillmore" = 17), name = "County") +
+  labs(
+    title = "Potentially Mineralizable Carbon by Management",
+    x = "Soil Health Management Score  (higher = more favorable)",
+    y = expression(bold(paste(mu, "g C g"^-1, " day"^-1)))
+  ) +
+  theme_bw() +
+  theme(
+    axis.text       = element_text(size = 12, face = "bold", color = "black"),
+    axis.title      = element_text(size = 13, face = "bold"),
+    plot.title      = element_text(size = 14, face = "bold", hjust = 0.5),
+    legend.title    = element_text(size = 12, face = "bold"),
+    legend.text     = element_text(size = 11),
+    legend.position = "bottom",
+    legend.key.size = unit(0.8, "lines")
+  )
+
+print(p_field_avg)
+ggsave("PMC_field_avg_vs_score.png", p_field_avg, width = 8.5, height = 6.5, dpi = 300)
+cat("Saved PMC_field_avg_vs_score.png\n")
