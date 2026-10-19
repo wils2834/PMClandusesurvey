@@ -6,7 +6,7 @@ library(emmeans)
 library(multcomp)
 library(ggplot2)
 
-# PART 1 — Import, recode, and average the 3 reps per UID
+# PART 1 Import and average the 3 reps per UID
 
 pmc24 <- read.csv("PMC_DR2024_all_calcs_01July2025_complete.csv", stringsAsFactors = FALSE)
 
@@ -14,17 +14,14 @@ pmc24 <- read.csv("PMC_DR2024_all_calcs_01July2025_complete.csv", stringsAsFacto
 pmc24 <- pmc24 %>%
   mutate(type = recode(type, "SH" = "Soil_Health", "RG" = "Rotational_Grazing"))
 
-# Average the 3 technical replicates per UID. na.rm = TRUE handles the
-# few rows where one of the 3 reps came back NA (a failed reading),
-# rather than discarding the whole UID.
+# Average the 3 technical replicates per UID. na.rm = TRUE handles the few rows where one of the 3 reps came back NA (a failed reading),
 pmc24_avg <- pmc24 %>%
   dplyr::rename(UID = sample.id, Farmer = farmer, Type = type) %>%
   group_by(UID, Farmer, Type) %>%
   summarise(ugC.g.day = mean(ugC.g.day, na.rm = TRUE), .groups = "drop")
 
 # County isn't in this reduced table, but it's recoverable from the UID
-# prefix (DRWI = Grant, DRMN = Fillmore), consistent with every other
-# dataset in this project. Flagging this as inferred, not given directly.
+# prefix (DRWI = Grant, DRMN = Fillmore), consistent with every other dataset in this project
 pmc24_avg <- pmc24_avg %>%
   mutate(County = ifelse(grepl("^DRMN", UID), "Fillmore", "Grant"))
 
@@ -33,8 +30,7 @@ pmc24_avg$Type <- factor(
   levels = c("Conventional", "Soil_Health", "Rotational_Grazing", "New_CRP", "Old_CRP")
 )
 
-# Same Field-ID fix as ACE/POXC: RLH_Inc and UW_AG each farm two
-# different fields under two different management types.
+# Same Field-ID fix as ACE/POXC: RLH_Inc and UW_AG 
 pmc24_avg <- pmc24_avg %>%
   mutate(Field = paste(Farmer, Type, sep = "_"))
 
@@ -42,7 +38,7 @@ cat("UIDs after averaging:", nrow(pmc24_avg), "\n")
 cat("Distinct fields:", n_distinct(pmc24_avg$Field), "(expect 31)\n")
 stopifnot(n_distinct(pmc24_avg$Field) == 31)
 
-# PART 2 — Mixed model
+# PART 2 Mixed model
 model_PMC     <- lmer(ugC.g.day ~ Type + (1 | Field), data = pmc24_avg)
 model_PMC_log <- lmer(log(ugC.g.day) ~ Type + (1 | Field), data = pmc24_avg)
 
@@ -75,7 +71,7 @@ PMC_summary <- as.data.frame(emm_PMC_table) %>%
 
 print(PMC_summary)
 
-## PART 3 — Plots
+# PART 3  Plots
 
 type_labels <- c(
   "Conventional"        = "Conventional Cropping & Tillage",
@@ -183,7 +179,7 @@ PMC_meta <- as.data.frame(emm_PMC_table) %>%
 write.csv(PMC_meta, "PMC_metadata.csv", row.names = FALSE)
 cat("Saved PMC_metadata.csv\n")
 
-# PART 4 — Indexed (continuous management score) version
+# PART 4  Indexed (continuous management score) version
 scores_full <- read.csv("C:\\Users\\swils\\Downloads\\01 Projects\\2024 CRP\\Landusesurveygithub\\managementoflandusesurvey2024\\soil_health_scores_2024_all_types.csv", stringsAsFactors = FALSE)
 
 # farm_name -> lab-data Farmer name (RG/CRP rows only; Conventional/SH
@@ -235,13 +231,15 @@ scores_full <- scores_full %>%
                   crp_type_map[farm_name],
                   Type)
   )
-
+scores_full <- scores_full %>%
+  mutate(Type = recode(Type,
+                       "CRP_New" = "New_CRP",
+                       "CRP_Old" = "Old_CRP"))
 cat("Corrected Farmer/Type for RG/CRP rows:\n")
 print(scores_full %>% filter(Type %in% c("Rotational_Grazing","Old_CRP","New_CRP")) %>%
         dplyr::select(farm_name, Farmer, Type))
 
-# ---- Join management score onto the PMC data -----------------------------
-
+# Join management score onto the PMC data 
 pmc24_indexed <- pmc24_avg %>%
   left_join(
     scores_full %>% dplyr::select(Farmer, Type, soil_health_score),
@@ -251,7 +249,7 @@ pmc24_indexed <- pmc24_avg %>%
 cat("\nRows with missing soil_health_score after join:",
     sum(is.na(pmc24_indexed$soil_health_score)), "\n")
 
-# ---- Mixed model with continuous management score -------------------------
+#  Mixed model with continuous management score 
 
 model_PMC_idx     <- lmer(ugC.g.day       ~ soil_health_score + (1 | Field), data = pmc24_indexed)
 model_PMC_idx_log <- lmer(log(ugC.g.day)  ~ soil_health_score + (1 | Field), data = pmc24_indexed)
@@ -269,7 +267,7 @@ summary(final_model_idx)
 anova_PMC_idx <- anova(final_model_idx)
 print(anova_PMC_idx)
 library(MuMIn)
-# ---- Plot: scatter + fitted line -------------------------------------------
+# Plot: scatter + fitted line
 
 fixed_est   <- summary(final_model_idx)$coefficients["soil_health_score", "Estimate"]
 fixed_p     <- anova_PMC_idx$`Pr(>F)`[1]
@@ -327,12 +325,8 @@ PMC_meta_indexed <- data.frame(
 write.csv(PMC_meta_indexed, "PMC_metadata_indexed.csv", row.names = FALSE)
 cat("Saved PMC_metadata_indexed.csv\n")
 
-# =========================================================================
+
 # PART 5 — Field-averaged scatter (n=31, simple lm, ordinary R^2)
-# Averages pmc24_indexed (already at UID level) down to one value per
-# Field, then fits a plain lm() -- no random effects, no marginal R^2.
-# Reuses scores_full/fill_colors/type_labels already defined above.
-# =========================================================================
 
 pmc_field_avg <- pmc24_indexed %>%
   group_by(Farmer, Type, County, soil_health_score) %>%
@@ -374,3 +368,4 @@ p_field_avg <- ggplot(pmc_field_avg, aes(x = soil_health_score, y = PMC)) +
 print(p_field_avg)
 ggsave("PMC_field_avg_vs_score.png", p_field_avg, width = 8.5, height = 6.5, dpi = 300)
 cat("Saved PMC_field_avg_vs_score.png\n")
+

@@ -1,2 +1,2 @@
 "Metric","Model","Scale","Shapiro_raw_p","Shapiro_log_p","Fixed_Estimate","LMM_F","LMM_p","R2_marginal"
-"PMC","indexed (soil_health_score continuous)","log",2.18e-12,1.73e-06,0.3363,46.333,1.8e-07,0.456
+"PMC","indexed (soil_health_score continuous)","log",1.58e-12,9.34e-07,0.2991,62.985,9.96e-09,0.509
