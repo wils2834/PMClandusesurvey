@@ -156,7 +156,10 @@ ggsave("PMC_by_county_boxplot.png", p_county, width = 12, height = 7, dpi = 300)
 cat("\nSaved PMC_overall_boxplot.png and PMC_by_county_boxplot.png\n")
 
 # ---- Metadata export ----------------------------------------------------
+<<<<<<< HEAD
 pairs(emm_PMC, adjust = "sidak")
+=======
+>>>>>>> 01cc84cfe92c186c6098a5608649e3bca3888e0f
 anova_PMC <- anova(final_model)
 
 PMC_meta <- as.data.frame(emm_PMC_table) %>%
@@ -174,6 +177,7 @@ PMC_meta <- as.data.frame(emm_PMC_table) %>%
     LMM_p          = signif(anova_PMC$`Pr(>F)`[1], 3)
   ) %>%
   dplyr::select(Metric, Scale, Shapiro_raw_p, Shapiro_log_p,
+<<<<<<< HEAD
                 LMM_F, LMM_p, Type, Mean,SE, CLD)
 
 write.csv(PMC_meta, "PMC_metadata.csv", row.names = FALSE)
@@ -369,3 +373,9 @@ print(p_field_avg)
 ggsave("PMC_field_avg_vs_score.png", p_field_avg, width = 8.5, height = 6.5, dpi = 300)
 cat("Saved PMC_field_avg_vs_score.png\n")
 
+=======
+                LMM_F, LMM_p, Type, Mean, CLD)
+
+write.csv(PMC_meta, "PMC_metadata.csv", row.names = FALSE)
+cat("Saved PMC_metadata.csv\n")
+>>>>>>> 01cc84cfe92c186c6098a5608649e3bca3888e0f
